@@ -81,24 +81,32 @@ jobs:
         env:
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
-          PROFILE_PATH=~/Library/MobileDevice/Provisioning\ Profiles
-          mkdir -p "$PROFILE_PATH"
+          PROFILE_DIR=~/Library/MobileDevice/Provisioning\ Profiles
+          mkdir -p "$PROFILE_DIR"
 
-          # Decode and save profile
-          echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH/profile.mobileprovision"
+          # Decode profile to temp file
+          TEMP_PROFILE=$(mktemp)
+          echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$TEMP_PROFILE"
 
-          # Verify profile installation
+          # Extract UUID (Xcode requires filename to be UUID)
+          PROFILE_UUID=$(security cms -D -i "$TEMP_PROFILE" | plutil -extract UUID raw -)
+          echo "Profile UUID: $PROFILE_UUID"
+
+          # Install with UUID as filename
+          mv "$TEMP_PROFILE" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+
+          # Verify installation
+          echo ""
           echo "Installed provisioning profiles:"
-          ls -la "$PROFILE_PATH"
+          ls -la "$PROFILE_DIR"
 
-          # Show profile info
           echo ""
           echo "Profile Bundle ID:"
-          security cms -D -i "$PROFILE_PATH/profile.mobileprovision" | plutil -extract Entitlements.application-identifier raw - || true
+          security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Entitlements.application-identifier raw - || true
 
           echo ""
           echo "Profile Type:"
-          security cms -D -i "$PROFILE_PATH/profile.mobileprovision" | plutil -extract Platform raw - || true
+          security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Platform raw - || true
 
       - name: Create Export Options
         if: ${{ env.HAS_CERTIFICATE == 'true' }}
