@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload IPA Artifact
         if: ${{ env.IOS_CERTIFICATE != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ios-build-${{ github.event.inputs.build_mode || 'release' }}
           path: build/ios_build.ipa
@@ -113,7 +113,7 @@ jobs:
 
       - name: Upload App Bundle (No Codesign)
         if: ${{ env.IOS_CERTIFICATE == '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ios-app-${{ github.event.inputs.build_mode || 'release' }}
           path: build/ios/iphoneos/Runner.app
