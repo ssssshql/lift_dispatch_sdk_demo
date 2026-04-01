@@ -23,7 +23,7 @@ env:
 jobs:
   build-ios:
     name: Build iOS IPA
-    runs-on: macos-latest
+    runs-on: macos-13  # Intel architecture runner for Flutter 2.10.5 compatibility
     
     steps:
       - name: Checkout Repository
