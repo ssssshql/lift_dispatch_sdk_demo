@@ -165,18 +165,20 @@ jobs:
           SIGNING_IDENTITY=$(security find-identity -v -p codesigning $RUNNER_TEMP/app-signing.keychain-db | grep "Apple Development" | head -1 | awk -F'"' '{print $2}')
           echo "Signing identity: $SIGNING_IDENTITY"
 
-          # Get provisioning profile UUID
-          PROFILE_UUID=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | head -1 | xargs basename | sed 's/.mobileprovision//')
-          echo "Profile UUID: $PROFILE_UUID"
+          # Verify provisioning profile exists
+          echo "Checking installed profiles:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
 
-          # Codesign the app
+          # Codesign the app (profile is already installed in system)
           APP_PATH="build/ios/iphoneos/Runner.app"
           codesign --force --deep --sign "$SIGNING_IDENTITY" \
             --entitlements ios/Runner/Runner.entitlements \
-            --provisioning-profile ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision \
+            --timestamp=none \
             "$APP_PATH"
 
           # Verify signing
+          echo ""
+          echo "Verifying signature:"
           codesign -dvv "$APP_PATH"
 
           # Create IPA
