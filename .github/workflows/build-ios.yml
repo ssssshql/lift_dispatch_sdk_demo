@@ -179,6 +179,36 @@ jobs:
           echo ""
           echo "Embedded provisioning profile into app"
 
+          # Create entitlements file from provisioning profile
+          ENTITLEMENTS_PATH="$RUNNER_TEMP/app.entitlements"
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
+          
+          # Extract entitlements from profile
+          plutil -extract Entitlements raw -o - "$RUNNER_TEMP/profile.plist" > "$ENTITLEMENTS_PATH" 2>/dev/null || true
+          
+          # If extraction failed, create basic entitlements
+          if [ ! -s "$ENTITLEMENTS_PATH" ]; then
+            echo "Creating entitlements from profile..."
+            cat > "$ENTITLEMENTS_PATH" << ENTFILE
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>application-identifier</key>
+              <string>$(plutil -extract Entitlements.application-identifier raw -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "L2Z87M4U5Y.com.smc.liftDispatchSdk")</string>
+              <key>com.apple.developer.team-identifier</key>
+              <string>$(plutil -extract Entitlements."com.apple.developer.team-identifier" raw -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "L2Z87M4U5Y")</string>
+              <key>get-task-allow</key>
+              <$(plutil -extract Entitlements."get-task-allow" raw -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "true")/>
+          </dict>
+          </plist>
+          ENTFILE
+          fi
+          
+          echo ""
+          echo "Using entitlements:"
+          cat "$ENTITLEMENTS_PATH"
+
           # Codesign frameworks first
           echo ""
           echo "Signing frameworks..."
@@ -189,20 +219,20 @@ jobs:
             fi
           done
 
-          # Codesign the app
+          # Codesign the app with entitlements
           echo ""
           echo "Signing app..."
-          codesign --force --deep --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"
+          codesign --force --deep --sign "$SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS_PATH" --timestamp=none "$APP_PATH"
 
           # Verify signing
           echo ""
           echo "Verifying signature:"
           codesign -dvv "$APP_PATH"
 
-          # Verify embedded profile
+          # Verify entitlements
           echo ""
-          echo "Verifying embedded profile:"
-          security cms -D -i "$APP_PATH/embedded.mobileprovision" | grep -A 1 "application-identifier" || true
+          echo "Verifying entitlements in signed app:"
+          codesign -d --entitlements - "$APP_PATH" 2>&1 | head -50
 
           # Create IPA
           mkdir -p Payload
