@@ -181,29 +181,32 @@ jobs:
 
           # Create entitlements file from provisioning profile
           ENTITLEMENTS_PATH="$RUNNER_TEMP/app.entitlements"
+          
+          # Extract entitlements from provisioning profile (convert to XML plist)
           security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
           
-          # Extract entitlements from profile
-          plutil -extract Entitlements raw -o - "$RUNNER_TEMP/profile.plist" > "$ENTITLEMENTS_PATH" 2>/dev/null || true
-          
-          # If extraction failed, create basic entitlements
-          if [ ! -s "$ENTITLEMENTS_PATH" ]; then
-            echo "Creating entitlements from profile..."
+          # Extract the Entitlements section as XML plist
+          plutil -extract Entitlements xml1 -o "$ENTITLEMENTS_PATH" "$RUNNER_TEMP/profile.plist" 2>/dev/null || {
+            echo "Failed to extract entitlements, creating from scratch..."
+            # Fallback: create entitlements manually
+            APP_ID=$(plutil -extract Entitlements.application-identifier raw "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "L2Z87M4U5Y.com.smc.liftDispatchSdk")
+            TEAM_ID=$(plutil -extract Entitlements."com.apple.developer.team-identifier" raw "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "L2Z87M4U5Y")
+            
             cat > "$ENTITLEMENTS_PATH" << ENTFILE
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>application-identifier</key>
-              <string>$(plutil -extract Entitlements.application-identifier raw -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "L2Z87M4U5Y.com.smc.liftDispatchSdk")</string>
+              <string>${APP_ID}</string>
               <key>com.apple.developer.team-identifier</key>
-              <string>$(plutil -extract Entitlements."com.apple.developer.team-identifier" raw -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "L2Z87M4U5Y")</string>
+              <string>${TEAM_ID}</string>
               <key>get-task-allow</key>
-              <$(plutil -extract Entitlements."get-task-allow" raw -o - "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "true")/>
+              <true/>
           </dict>
           </plist>
           ENTFILE
-          fi
+          }
           
           echo ""
           echo "Using entitlements:"
