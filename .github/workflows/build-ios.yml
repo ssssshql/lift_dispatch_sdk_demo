@@ -108,6 +108,13 @@ jobs:
           echo "Profile Type:"
           security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Platform raw - || true
 
+          echo ""
+          echo "Profile Name:"
+          security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Name raw - || true
+
+          # Save profile name for next step
+          echo "PROFILE_NAME=$(security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Name raw -)" >> $GITHUB_ENV
+
       - name: Create Export Options
         if: ${{ env.HAS_CERTIFICATE == 'true' }}
         run: |
@@ -122,9 +129,17 @@ jobs:
               <string>${{ secrets.IOS_TEAM_ID || 'L2Z87M4U5Y' }}</string>
               <key>signingStyle</key>
               <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>com.smc.liftDispatchSdk</key>
+                  <string>$PROFILE_NAME</string>
+              </dict>
           </dict>
           </plist>
           EOF
+
+          echo "Created ExportOptions.plist:"
+          cat ios/ExportOptions.plist
 
           echo "Created ExportOptions.plist:"
           cat ios/ExportOptions.plist
