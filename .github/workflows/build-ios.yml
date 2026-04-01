@@ -19,6 +19,7 @@ on:
 
 env:
   FLUTTER_VERSION: '3.24.0'
+  HAS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE != '' }}
 
 jobs:
   build-ios:
@@ -57,7 +58,7 @@ jobs:
       # - KEYCHAIN_PASSWORD: Password for temporary keychain
 
       - name: Install Apple Certificate
-        if: ${{ env.IOS_CERTIFICATE != '' }}
+        if: ${{ env.HAS_CERTIFICATE == 'true' }}
         env:
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -76,7 +77,7 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
 
       - name: Install Provisioning Profile
-        if: ${{ env.IOS_PROVISIONING_PROFILE != '' }}
+        if: ${{ env.HAS_CERTIFICATE == 'true' }}
         env:
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
@@ -85,17 +86,17 @@ jobs:
           echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode -o "$PROFILE_PATH/profile.mobileprovision"
 
       - name: Build iOS (No Codesign)
-        if: ${{ env.IOS_CERTIFICATE == '' }}
+        if: ${{ env.HAS_CERTIFICATE != 'true' }}
         run: |
           flutter build ios --${{ github.event.inputs.build_mode || 'release' }} --no-codesign
 
       - name: Build iOS (With Codesign)
-        if: ${{ env.IOS_CERTIFICATE != '' }}
+        if: ${{ env.HAS_CERTIFICATE == 'true' }}
         run: |
           flutter build ios --${{ github.event.inputs.build_mode || 'release' }}
 
       - name: Archive iOS App
-        if: ${{ env.IOS_CERTIFICATE != '' }}
+        if: ${{ env.HAS_CERTIFICATE == 'true' }}
         working-directory: build/ios/iphoneos
         run: |
           # Create IPA
@@ -104,7 +105,7 @@ jobs:
           zip -r ../../ios_build.ipa Payload
 
       - name: Upload IPA Artifact
-        if: ${{ env.IOS_CERTIFICATE != '' }}
+        if: ${{ env.HAS_CERTIFICATE == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ios-build-${{ github.event.inputs.build_mode || 'release' }}
@@ -112,7 +113,7 @@ jobs:
           retention-days: 30
 
       - name: Upload App Bundle (No Codesign)
-        if: ${{ env.IOS_CERTIFICATE == '' }}
+        if: ${{ env.HAS_CERTIFICATE != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ios-app-${{ github.event.inputs.build_mode || 'release' }}
@@ -120,6 +121,6 @@ jobs:
           retention-days: 30
 
       - name: Clean up Keychain
-        if: ${{ always() && env.IOS_CERTIFICATE != '' }}
+        if: ${{ always() && env.HAS_CERTIFICATE == 'true' }}
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
