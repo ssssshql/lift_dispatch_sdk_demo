@@ -169,12 +169,21 @@ jobs:
           echo "Checking installed profiles:"
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
 
-          # Codesign the app (profile is already installed in system)
+          # Codesign frameworks first
+          echo ""
+          echo "Signing frameworks..."
+          for framework in build/ios/iphoneos/Runner.app/Frameworks/*; do
+            if [ -d "$framework" ]; then
+              echo "Signing $framework"
+              codesign --force --deep --sign "$SIGNING_IDENTITY" --timestamp=none "$framework"
+            fi
+          done
+
+          # Codesign the app
           APP_PATH="build/ios/iphoneos/Runner.app"
-          codesign --force --deep --sign "$SIGNING_IDENTITY" \
-            --entitlements ios/Runner/Runner.entitlements \
-            --timestamp=none \
-            "$APP_PATH"
+          echo ""
+          echo "Signing app..."
+          codesign --force --deep --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"
 
           # Verify signing
           echo ""
