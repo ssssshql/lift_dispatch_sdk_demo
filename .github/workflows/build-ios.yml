@@ -2,28 +2,14 @@ name: Build iOS
 
 on:
   push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main, master ]
   workflow_dispatch:
-    inputs:
-      build_mode:
-        description: 'Build mode (release/debug/profile)'
-        required: true
-        default: 'release'
-        type: choice
-        options:
-          - release
-          - debug
-          - profile
 
 env:
   FLUTTER_VERSION: '3.24.0'
-  HAS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE != '' }}
 
 jobs:
   build-ios:
-    name: Build iOS IPA
     runs-on: macos-latest
     
     steps:
@@ -35,33 +21,19 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
-          cache: true
-
-      - name: Verify Flutter Installation
-        run: |
-          flutter --version
-          flutter doctor -v
 
       - name: Install Dependencies
         run: flutter pub get
 
       - name: Install CocoaPods Dependencies
         working-directory: ios
-        run: |
-          pod install
+        run: pod install
 
-      # iOS Code Signing Configuration
-      # You need to configure these secrets in your GitHub repository settings
-      # - IOS_CERTIFICATE: Base64 encoded .p12 certificate
-      # - IOS_CERTIFICATE_PASSWORD: Password for the .p12 certificate
-      # - IOS_PROVISIONING_PROFILE: Base64 encoded provisioning profile
-      # - KEYCHAIN_PASSWORD: Password for temporary keychain
-
-      - name: Install Apple Certificate
-        if: ${{ env.HAS_CERTIFICATE == 'true' }}
+      - name: Install Apple Certificate & Provisioning Profile
         env:
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           # Create temporary keychain
@@ -71,205 +43,70 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
           # Import certificate
-          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
-          echo -n "$IOS_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
-          security import $CERTIFICATE_PATH -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          echo -n "$IOS_CERTIFICATE" | base64 --decode -o $CERT_PATH
+          security import $CERT_PATH -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
 
-      - name: Install Provisioning Profile
-        if: ${{ env.HAS_CERTIFICATE == 'true' }}
-        env:
-          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
-        run: |
+          # Install provisioning profile
           PROFILE_DIR=~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p "$PROFILE_DIR"
+          echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_DIR/profile.mobileprovision"
 
-          # Decode profile to temp file
-          TEMP_PROFILE=$(mktemp)
-          echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$TEMP_PROFILE"
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign
 
-          # Extract UUID (Xcode requires filename to be UUID)
-          PROFILE_UUID=$(security cms -D -i "$TEMP_PROFILE" | plutil -extract UUID raw -)
-          echo "Profile UUID: $PROFILE_UUID"
-
-          # Install with UUID as filename
-          mv "$TEMP_PROFILE" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
-
-          # Verify installation
-          echo ""
-          echo "Installed provisioning profiles:"
-          ls -la "$PROFILE_DIR"
-
-          echo ""
-          echo "Profile Bundle ID:"
-          security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Entitlements.application-identifier raw - || true
-
-          echo ""
-          echo "Profile Type:"
-          security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Platform raw - || true
-
-          echo ""
-          echo "Profile Name:"
-          security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Name raw - || true
-
-          # Save profile name for next step
-          echo "PROFILE_NAME=$(security cms -D -i "$PROFILE_DIR/$PROFILE_UUID.mobileprovision" | plutil -extract Name raw -)" >> $GITHUB_ENV
-
-      - name: Create Export Options
-        if: ${{ env.HAS_CERTIFICATE == 'true' }}
+      - name: Sign and Package IPA
         run: |
-          cat > ios/ExportOptions.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>development</string>
-              <key>teamID</key>
-              <string>${{ secrets.IOS_TEAM_ID || 'L2Z87M4U5Y' }}</string>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                  <key>com.smc.liftDispatchSdk</key>
-                  <string>$PROFILE_NAME</string>
-              </dict>
-          </dict>
-          </plist>
-          EOF
-
-          echo "Created ExportOptions.plist:"
-          cat ios/ExportOptions.plist
-
-          echo "Created ExportOptions.plist:"
-          cat ios/ExportOptions.plist
-
-      - name: Build iOS (No Codesign)
-        if: ${{ env.HAS_CERTIFICATE != 'true' }}
-        run: |
-          flutter build ios --${{ github.event.inputs.build_mode || 'release' }} --no-codesign
-
-      - name: Build iOS (With Codesign)
-        if: ${{ env.HAS_CERTIFICATE == 'true' }}
-        run: |
-          # Build without codesign first
-          flutter build ios --${{ github.event.inputs.build_mode || 'release' }} --no-codesign
-
-      - name: Codesign and Package IPA
-        if: ${{ env.HAS_CERTIFICATE == 'true' }}
-        env:
-          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          # Get the identity from keychain
+          # Get signing identity
           SIGNING_IDENTITY=$(security find-identity -v -p codesigning $RUNNER_TEMP/app-signing.keychain-db | grep "Apple Development" | head -1 | awk -F'"' '{print $2}')
-          echo "Signing identity: $SIGNING_IDENTITY"
-
-          # Verify provisioning profile exists
-          echo "Checking installed profiles:"
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
-
+          
           # Get provisioning profile
           PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | head -1)
-          echo "Using profile: $PROFILE_PATH"
-
-          # Embed provisioning profile into app
+          
+          # Embed profile into app
           APP_PATH="build/ios/iphoneos/Runner.app"
           cp "$PROFILE_PATH" "$APP_PATH/embedded.mobileprovision"
-          echo ""
-          echo "Embedded provisioning profile into app"
-
-          # Create entitlements file from provisioning profile
+          
+          # Create entitlements
           ENTITLEMENTS_PATH="$RUNNER_TEMP/app.entitlements"
-          
-          # Extract entitlements from provisioning profile (convert to XML plist)
-          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
-          
-          # Extract the Entitlements section as XML plist
-          plutil -extract Entitlements xml1 -o "$ENTITLEMENTS_PATH" "$RUNNER_TEMP/profile.plist" 2>/dev/null || {
-            echo "Failed to extract entitlements, creating from scratch..."
-            # Fallback: create entitlements manually
-            APP_ID=$(plutil -extract Entitlements.application-identifier raw "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "L2Z87M4U5Y.com.smc.liftDispatchSdk")
-            TEAM_ID=$(plutil -extract Entitlements."com.apple.developer.team-identifier" raw "$RUNNER_TEMP/profile.plist" 2>/dev/null || echo "L2Z87M4U5Y")
-            
-            cat > "$ENTITLEMENTS_PATH" << ENTFILE
+          cat > "$ENTITLEMENTS_PATH" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>application-identifier</key>
-              <string>${APP_ID}</string>
+              <string>L2Z87M4U5Y.com.smc.liftDispatchSdk</string>
               <key>com.apple.developer.team-identifier</key>
-              <string>${TEAM_ID}</string>
+              <string>L2Z87M4U5Y</string>
               <key>get-task-allow</key>
               <true/>
           </dict>
           </plist>
-          ENTFILE
-          }
+          EOF
           
-          echo ""
-          echo "Using entitlements:"
-          cat "$ENTITLEMENTS_PATH"
-
-          # Codesign frameworks first
-          echo ""
-          echo "Signing frameworks..."
+          # Sign frameworks
           for framework in "$APP_PATH/Frameworks"/*; do
             if [ -d "$framework" ]; then
-              echo "Signing $framework"
               codesign --force --deep --sign "$SIGNING_IDENTITY" --timestamp=none "$framework"
             fi
           done
-
-          # Codesign the app with entitlements
-          echo ""
-          echo "Signing app..."
+          
+          # Sign app
           codesign --force --deep --sign "$SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS_PATH" --timestamp=none "$APP_PATH"
-
-          # Verify signing
-          echo ""
-          echo "Verifying signature:"
-          codesign -dvv "$APP_PATH"
-
-          # Verify entitlements
-          echo ""
-          echo "Verifying entitlements in signed app:"
-          codesign -d --entitlements - "$APP_PATH" 2>&1 | head -50
-
+          
           # Create IPA
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -r build/ios_build.ipa Payload
 
-      - name: Archive iOS App
-        if: ${{ env.HAS_CERTIFICATE == 'true' }}
-        run: |
-          # IPA already created in previous step
-          if [ ! -f build/ios_build.ipa ]; then
-            echo "Error: IPA file not found"
-            exit 1
-          fi
-          echo "IPA created successfully:"
-          ls -lh build/ios_build.ipa
-
       - name: Upload IPA Artifact
-        if: ${{ env.HAS_CERTIFICATE == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ios-build-${{ github.event.inputs.build_mode || 'release' }}
+          name: ios-release
           path: build/ios_build.ipa
           retention-days: 30
 
-      - name: Upload App Bundle (No Codesign)
-        if: ${{ env.HAS_CERTIFICATE != 'true' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-app-${{ github.event.inputs.build_mode || 'release' }}
-          path: build/ios/iphoneos/Runner.app
-          retention-days: 30
-
       - name: Clean up Keychain
-        if: ${{ always() && env.HAS_CERTIFICATE == 'true' }}
-        run: |
-          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+        if: ${{ always() }}
+        run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
