@@ -48,10 +48,18 @@ jobs:
           security import $CERT_PATH -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
 
-          # Install provisioning profile
+          # Install provisioning profile with UUID as filename
           PROFILE_DIR=~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p "$PROFILE_DIR"
-          echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_DIR/profile.mobileprovision"
+          
+          TEMP_PROFILE=$RUNNER_TEMP/profile.mobileprovision
+          echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$TEMP_PROFILE"
+          
+          # Extract UUID and install with correct filename
+          PROFILE_UUID=$(security cms -D -i "$TEMP_PROFILE" | plutil -extract UUID raw -)
+          mv "$TEMP_PROFILE" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          
+          echo "Installed profile: $PROFILE_UUID.mobileprovision"
 
       - name: Build iOS
         run: flutter build ios --release --no-codesign
@@ -60,40 +68,42 @@ jobs:
         run: |
           # Get signing identity
           SIGNING_IDENTITY=$(security find-identity -v -p codesigning $RUNNER_TEMP/app-signing.keychain-db | grep "Apple Development" | head -1 | awk -F'"' '{print $2}')
+          echo "Signing identity: $SIGNING_IDENTITY"
           
           # Get provisioning profile
           PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | head -1)
+          echo "Using profile: $PROFILE_PATH"
+          
+          # Extract entitlements from provisioning profile
+          ENTITLEMENTS_PATH="$RUNNER_TEMP/app.entitlements"
+          PROFILE_PLIST="$RUNNER_TEMP/profile.plist"
+          
+          # Decode profile and extract entitlements
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          plutil -extract Entitlements xml1 -o "$ENTITLEMENTS_PATH" "$PROFILE_PLIST"
+          
+          echo "Extracted entitlements:"
+          cat "$ENTITLEMENTS_PATH"
           
           # Embed profile into app
           APP_PATH="build/ios/iphoneos/Runner.app"
           cp "$PROFILE_PATH" "$APP_PATH/embedded.mobileprovision"
           
-          # Create entitlements
-          ENTITLEMENTS_PATH="$RUNNER_TEMP/app.entitlements"
-          cat > "$ENTITLEMENTS_PATH" << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>application-identifier</key>
-              <string>L2Z87M4U5Y.com.smc.liftDispatchSdk</string>
-              <key>com.apple.developer.team-identifier</key>
-              <string>L2Z87M4U5Y</string>
-              <key>get-task-allow</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
-          
           # Sign frameworks
+          echo "Signing frameworks..."
           for framework in "$APP_PATH/Frameworks"/*; do
             if [ -d "$framework" ]; then
               codesign --force --deep --sign "$SIGNING_IDENTITY" --timestamp=none "$framework"
             fi
           done
           
-          # Sign app
+          # Sign app with extracted entitlements
+          echo "Signing app..."
           codesign --force --deep --sign "$SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS_PATH" --timestamp=none "$APP_PATH"
+          
+          # Verify signature
+          echo "Verifying signature..."
+          codesign -dvv "$APP_PATH"
           
           # Create IPA
           mkdir -p Payload
