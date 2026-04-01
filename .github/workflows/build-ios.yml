@@ -169,10 +169,20 @@ jobs:
           echo "Checking installed profiles:"
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
 
+          # Get provisioning profile
+          PROFILE_PATH=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | head -1)
+          echo "Using profile: $PROFILE_PATH"
+
+          # Embed provisioning profile into app
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          cp "$PROFILE_PATH" "$APP_PATH/embedded.mobileprovision"
+          echo ""
+          echo "Embedded provisioning profile into app"
+
           # Codesign frameworks first
           echo ""
           echo "Signing frameworks..."
-          for framework in build/ios/iphoneos/Runner.app/Frameworks/*; do
+          for framework in "$APP_PATH/Frameworks"/*; do
             if [ -d "$framework" ]; then
               echo "Signing $framework"
               codesign --force --deep --sign "$SIGNING_IDENTITY" --timestamp=none "$framework"
@@ -180,7 +190,6 @@ jobs:
           done
 
           # Codesign the app
-          APP_PATH="build/ios/iphoneos/Runner.app"
           echo ""
           echo "Signing app..."
           codesign --force --deep --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"
@@ -189,6 +198,11 @@ jobs:
           echo ""
           echo "Verifying signature:"
           codesign -dvv "$APP_PATH"
+
+          # Verify embedded profile
+          echo ""
+          echo "Verifying embedded profile:"
+          security cms -D -i "$APP_PATH/embedded.mobileprovision" | grep -A 1 "application-identifier" || true
 
           # Create IPA
           mkdir -p Payload
