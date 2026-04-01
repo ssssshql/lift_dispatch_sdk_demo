@@ -106,7 +106,9 @@ class LiftDispatch {
         // print(' ${result.beacons[0].proximityUUID} | ${result.beacons[0].macAddress} | ${result.beacons[0].major} | ${result.beacons[0].minor}, ');
         for (var beacon in result.beacons) {
           print('Detected beacons..');
-          beaconList.add(Beacon(beacon.proximityUUID, beacon.major, beacon.minor, beacon.rssi));
+          if (beacon.rssi != 0) {
+            beaconList.add(Beacon(beacon.proximityUUID, beacon.major, beacon.minor, beacon.rssi));
+          }
         }
       }
     });
