@@ -83,7 +83,14 @@ jobs:
         run: |
           PROFILE_PATH=~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p "$PROFILE_PATH"
-          echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode -o "$PROFILE_PATH/profile.mobileprovision"
+          echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH/profile.mobileprovision"
+
+          # Verify profile installation
+          echo "Installed provisioning profiles:"
+          ls -la "$PROFILE_PATH"
+          echo ""
+          echo "Profile details:"
+          security cms -D -i "$PROFILE_PATH/profile.mobileprovision" | grep -A 5 "Entitlements" || true
 
       - name: Build iOS (No Codesign)
         if: ${{ env.HAS_CERTIFICATE != 'true' }}
