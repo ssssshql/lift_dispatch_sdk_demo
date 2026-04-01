@@ -18,12 +18,12 @@ on:
           - profile
 
 env:
-  FLUTTER_VERSION: '2.10.5'
+  FLUTTER_VERSION: '3.24.0'
 
 jobs:
   build-ios:
     name: Build iOS IPA
-    runs-on: macos-13  # Intel architecture runner for Flutter 2.10.5 compatibility
+    runs-on: macos-latest
     
     steps:
       - name: Checkout Repository
