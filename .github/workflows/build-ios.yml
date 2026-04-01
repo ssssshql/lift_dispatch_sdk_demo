@@ -83,14 +83,43 @@ jobs:
         run: |
           PROFILE_PATH=~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p "$PROFILE_PATH"
+
+          # Decode and save profile
           echo -n "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH/profile.mobileprovision"
 
           # Verify profile installation
           echo "Installed provisioning profiles:"
           ls -la "$PROFILE_PATH"
+
+          # Show profile info
           echo ""
-          echo "Profile details:"
-          security cms -D -i "$PROFILE_PATH/profile.mobileprovision" | grep -A 5 "Entitlements" || true
+          echo "Profile Bundle ID:"
+          security cms -D -i "$PROFILE_PATH/profile.mobileprovision" | plutil -extract Entitlements.application-identifier raw - || true
+
+          echo ""
+          echo "Profile Type:"
+          security cms -D -i "$PROFILE_PATH/profile.mobileprovision" | plutil -extract Platform raw - || true
+
+      - name: Create Export Options
+        if: ${{ env.HAS_CERTIFICATE == 'true' }}
+        run: |
+          cat > ios/ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>teamID</key>
+              <string>${{ secrets.IOS_TEAM_ID || 'L2Z87M4U5Y' }}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+          </dict>
+          </plist>
+          EOF
+
+          echo "Created ExportOptions.plist:"
+          cat ios/ExportOptions.plist
 
       - name: Build iOS (No Codesign)
         if: ${{ env.HAS_CERTIFICATE != 'true' }}
@@ -100,16 +129,16 @@ jobs:
       - name: Build iOS (With Codesign)
         if: ${{ env.HAS_CERTIFICATE == 'true' }}
         run: |
-          flutter build ios --${{ github.event.inputs.build_mode || 'release' }}
+          flutter build ipa --${{ github.event.inputs.build_mode || 'release' }} --export-options-plist=ios/ExportOptions.plist
 
       - name: Archive iOS App
         if: ${{ env.HAS_CERTIFICATE == 'true' }}
-        working-directory: build/ios/iphoneos
         run: |
-          # Create IPA
-          mkdir -p Payload
-          cp -r Runner.app Payload/
-          zip -r ../../ios_build.ipa Payload
+          # flutter build ipa already creates the IPA
+          # Just rename it to match expected filename
+          if [ -f build/ios/ipa/*.ipa ]; then
+            mv build/ios/ipa/*.ipa build/ios_build.ipa
+          fi
 
       - name: Upload IPA Artifact
         if: ${{ env.HAS_CERTIFICATE == 'true' }}
